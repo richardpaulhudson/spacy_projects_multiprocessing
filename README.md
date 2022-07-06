@@ -27,7 +27,7 @@ The current, purely serial implementation uses the [subprocess](https://docs.pyt
 
 Alongside the synchronous `subprocess.run()` command in use in the current implementation, the module contains a lower-level `subprocess.Popen()` method that starts a subprocess asynchronously, i.e. separate from the calling thread. An obvious solution for parallel execution is therefore to start the subprocesses in a group with `subprocess.Popen()` and wait for them to complete; if any subprocess fails (`rc!=0`) any other subprocesses in the group that are still running can be killed.
 
-This approach is exemplified in [subprocess_direct.py](https://github.com/richardpaulhudson/multiprocessing_arch/subprocess.py). It has serious problems:
+This approach is exemplified in [subprocess_direct.py](https://github.com/richardpaulhudson/spacy_multiprocessing_arch/blob/main/subprocess_direct.py). It has serious problems:
 
 - The main process has to poll the subprocesses to see whether they have completed. Polling is normally regarded as a clear antipattern: instead, there should be some mechanism for the subprocesses to notify the main process when they complete.
 - The fact that the subprocesses run separately from the main process means that there is no communication between their standard pipes and the main process' standard pipes. The `subprocess` documentation advises callers to use the `run()` method where posible so that the subprocess runs in communication with the starting process.
@@ -37,7 +37,7 @@ This approach is exemplified in [subprocess_direct.py](https://github.com/richar
 
 Async IO is a paradigm available within Python that is primarily designed to allow IO-bound tasks to relinquish control within the context of a single process. The library contains a [subprocess module](https://docs.python.org/3/library/asyncio-subprocess.html) which enables several subprocesses to be started from several coroutines within a single main process. Each coroutine can then react to whatever its subprocess returns, killing the other subprocesses if necessary. If we took this route in spaCy projects, the coroutine could also deal with aspects like logging, dependencies and outputs.
 
-This approach is exemplified in [subprocess_async.py](https://github.com/richardpaulhudson/multiprocessing_arch/subprocess_async.py). It, too, has serious problems:
+This approach is exemplified in [subprocess_async.py](https://github.com/richardpaulhudson/spacy_multiprocessing_arch/blob/main/subprocess_async.py). It, too, has serious problems:
 
 - The fact that each subprocess is managed in its own subroutine greatly increases the code complexity and also introduces threading issues that have to be managed extensively with a mutex.
 - Because asynchronous programming in Python can only be called from other asynchronous methods, going this route in spacy projects would require major changes that would probably include making methods asynchronous that are not directly relevant to the change. This would make the code hard to understand.
