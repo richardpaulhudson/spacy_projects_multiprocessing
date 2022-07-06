@@ -35,9 +35,9 @@ This approach is exemplified in [subprocess_direct.py](https://github.com/richar
 
 ### `asyncio-subprocess`
 
-Async IO is a paradigm available within Python that is primarily designed to allow IO-bound tasks to relinquish control within the context of a single process. The library contains a [subprocess module](https://docs.python.org/3/library/asyncio-subprocess.html) which enables several subprocesses to be started from several coroutines within a single main process. Each coroutine can then react to whatever its subprocess returns, killing the other subprocesses if necessary.
+Async IO is a paradigm available within Python that is primarily designed to allow IO-bound tasks to relinquish control within the context of a single process. The library contains a [subprocess module](https://docs.python.org/3/library/asyncio-subprocess.html) which enables several subprocesses to be started from several coroutines within a single main process. Each coroutine can then react to whatever its subprocess returns, killing the other subprocesses if necessary. If we took this route in spaCy projects, the coroutine could also deal with aspects like logging, dependencies and outputs.
 
-This approach is exemplified in [subprocess_direct.py](https://github.com/richardpaulhudson/multiprocessing_arch/async.py). It, too, has serious problems:
+This approach is exemplified in [subprocess_async.py](https://github.com/richardpaulhudson/multiprocessing_arch/subprocess_async.py). It, too, has serious problems:
 
 - The fact that each subprocess is managed in its own subroutine greatly increases the code complexity and also introduces threading issues that have to be managed extensively with a mutex.
 - Because asynchronous programming in Python can only be called from other asynchronous methods, going this route in spacy projects would require major changes that would probably include making methods asynchronous that are not directly relevant to the change. This would make the code hard to understand.
@@ -52,4 +52,18 @@ This approach is exemplified in [subprocess_direct.py](https://github.com/richar
 - `trio` does not support Python 3.6, meaning that if we included it we would have to move the bottom Python version peg (this may not actually be that serious an issue, though, as Python 3.6 is not generally supported any more).
 
 ### `multiprocessing.Pool`
+
+At first glance `multiprocessing.Pool` looks like exactly what we need: 
+
+- a pool of processes of a specified size; each process could start a `subprocess` as well as dealing with logging, dependencies and outputs
+- individual jobs are assigned using the `apply_async()` method, whose parameters are the Python method to run the job and optionally a callback method to call when the job is complete
+- the pool has a `terminate()` method that kills all currently running processes
+
+However, this route would involve the following problems:
+
+- The `terminate()` method kills the processes in the pool, but not the commands these processes would start using `subprocess` as these processes are not well-behaved daemons. 
+- In order to allow the commands to be terminated as well, each pool process would need to determine its command's PID before starting the command and the PIDs would need to be maintained centrally so they could all be killed. However, passing the PIDs for centralised management would be messy at best because the job passed to `apply_async()` is normally a function and can only be a method if that method is specifically made picklable; however, if it is picklable, different methods may end up accessing different instance variables in different spawned processes.
+- In general the reliance on callback methods is likely to result in code that is messy and hard to understand and debug.
+
+### `ProcessPoolExecutor` and `ThreadPoolExecutor`
 
