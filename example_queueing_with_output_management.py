@@ -43,15 +43,15 @@ def execute(jobs):
 # good case
 execute(
     [
-        ((sys.executable, "./job.py", "1", "0", "5")),
-        ((sys.executable, "./job.py", "2", "0", "2")),
+        ((sys.executable, "-u", "./job.py", "1", "0", "5")),
+        ((sys.executable, "-u", "./job.py", "2", "0", "2")),
     ]
 )
 
 # bad case
 execute(
     [
-        ((sys.executable, "./job.py", "1", "1", "5")),
-        ((sys.executable, "./job.py", "2", "2", "2")),
+        ((sys.executable, "-u", "./job.py", "1", "1", "5")),
+        ((sys.executable, "-u", "./job.py", "2", "2", "2")),
     ]
 )
