@@ -9,7 +9,8 @@ def run(status_queue, lock, subprocess_args):
     with lock:
         print("Starting ...")
     sp = subprocess.Popen(
-        subprocess_args, stdout=subprocess.PIPE, stderr=subprocess.STDOUT
+        subprocess_args, stdout=subprocess.PIPE 
+        # stderr is not specified, meaning it is outputted to the console directly
     )
     status_queue.put(("start", sp.pid))
     output, _ = sp.communicate()
