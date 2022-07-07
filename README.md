@@ -30,13 +30,13 @@ Alongside the synchronous `subprocess.run()` function in use in the current impl
 The four `example ... py` scripts in the repository show different ways of achieving the same thing. In all cases:
 
 - two commands are executed in parallel, one of which sleeps for two seconds and the other of which sleeps for five seconds; each logs to the console before and after the sleep.
-- the commands are executed again, but this time the two-second command returns a non-zero return code, which should lead to the five-second command being killed.
+- the commands are executed again, but this time the two-second command returns a non-zero return code, which leads to the five-second command being killed.
 
 The direct `subprocess` approach is exemplified in [example_subprocess_direct.py](https://github.com/richardpaulhudson/spacy_multiprocessing_arch/blob/main/example_subprocess_direct.py). However, it has serious problems:
 
 - The main process has to poll the subprocesses to see whether they have completed. Polling is normally regarded as a clear antipattern: instead, there should be some mechanism for the subprocesses to notify the main process when they complete (push as opposed to pull).
 - The fact that the subprocesses run separately from the main process means that there is no communication between their standard pipes and the main process' standard pipes. The `subprocess` documentation advises callers to use the `run()` method where possible so that the subprocess runs in communication with the Python process that created it.
-- Only the actual commands are run in their own subprocesses; there is no parallelisation of tooling within spaCy projects such as outputting status messages and managing dependencies and outputs. Handling such tooling from a single main process/thread without parallelisation would certainly be possible, but would require major code changes.
+- Only the actual commands are run in their own parallel subprocesses; there is no scope for parallelisation of tooling within spaCy projects such as outputting status messages and managing dependencies and outputs. Handling such tooling from a single main process/thread without parallelisation would certainly be possible, but would require major code changes.
 
 To avoid this last problem, it seems sensible to aim for a three-tier architecture:
 
@@ -83,7 +83,7 @@ However, this route would involve the following problems:
 
 [ProcessPoolExecutor](https://docs.python.org/3/library/concurrent.futures.html#concurrent.futures.ProcessPoolExecutor) provides a wrapper around `multiprocessing.Pool` and thus shares the basic problems set out above for `multiprocessing.Pool`. Additionally, it has the following problem:
 
-- It doesn't have anything corresponding to `multiprocessing.Pool.terminate()`. It has a `shutdown()` method, but this only prevents pending jobs from executing; it doesn't terminate jobs that are already running. This means stopping a running parallel group would mean killing the subprocesses and then waiting for each worker process to register that its subprocess was dead and return control to the pool. This seems a very hairy procedure.
+- It doesn't have anything corresponding to `multiprocessing.Pool.terminate()`. It has a `shutdown()` method, but this only prevents pending jobs from executing; it doesn't terminate jobs that are already running. This means stopping a running parallel group would mean killing the subprocesses and then waiting for each worker process to register that its subprocess was dead and to return control to the pool. This seems a very hairy procedure.
 
 ### 3.6 `ThreadPoolExecutor`
 
@@ -109,7 +109,7 @@ In [example_queueing.py](https://github.com/richardpaulhudson/spacy_multiprocess
 
 The [subprocess](https://docs.python.org/3/library/subprocess.html) documentation advises using `subprocess.run()` rather the lower-level `subprocess.Popen()` whenever possible. In [example_queueing.py](https://github.com/richardpaulhudson/spacy_multiprocessing_arch/blob/main/example_queueing.py), however, the subprocess is created using `Popen()` to allow the worker process to retrieve the subprocess' PID and send it to the main process via the queue.
 
-Nevertheless, on reflection and further investigation the main issue with calling `Popen()` is that it starts a subprocess that is not in communication with its worker process, meaning that e.g. the standard pipes are not managed automatically. In the proposed solution, communication is established using `communicate()` immediately after the worker process has placed the subprocess' PID in the queue and is maintained until the subprocess completes.
+On reflection and further investigation, the main issue with calling `Popen()` is that it starts a subprocess that is not in communication with its worker process, meaning that e.g. the standard pipes are not managed automatically. In the proposed solution, communication is established using `communicate()` immediately after the worker process has placed the subprocess' PID in the queue and is maintained until the subprocess completes. This creates a comparable situation to if the subprocess had been created using `run()`.
 
 One concern is whether subprocess output could get lost in the split second before communication is established. [popen_with_sleep.py](https://github.com/richardpaulhudson/spacy_multiprocessing_arch/blob/main/popen_with_sleep.py) demonstrates that this is not the case: although communication is established well after the subprocess has written to `stdout`, the relevant output is still correctly piped to the console.
 
@@ -127,7 +127,7 @@ In general it is worth noting that if subprocess termination fails for some reas
 
 ### 4.4 Managing console output
 
-In the proposed solution, console output from the **worker processes** is managed using a mutex to ensure that sections of output from different worker processes remain separate. On the other hand, the executed **subprocesses** know nothing about the workflow system and any subprocess could log anything to `stdout` or `stderr` at any time. It probably makes more sense for subprocesses to log to separate log files, but we have no way of stipulating this and they are quite at liberty to log to the console whenever they like. There are two possible ways of managing console output from subprocesses, neither of which is ideal:
+In the proposed solution, console output from the **worker processes** is managed using a mutex to ensure that sections of output from different worker processes remain separate. On the other hand, the executed **subprocesses** know nothing about the workflow system, and any subprocess could log anything to `stdout` or `stderr` at any time. It probably makes more sense for subprocesses to log to separate log files, but we have no way of stipulating this and they are at liberty to log to the console whenever they like. There are two possible ways of managing console output from subprocesses, neither of which is ideal:
 
 - Each subprocess logs directly to the console. This ensures console output is displayed in real time; however, console output from different subprocesses can get mixed up.
 - Each worker process stores the console output from its subprocess and returns it to the main process together with the return code so the main process can log it. This option is demonstrated by the script [example_queueing_with_output_management.py](https://github.com/richardpaulhudson/spacy_multiprocessing_arch/blob/main/example_queueing_with_output_management.py). It ensures that console output is displayed cleanly and separately for each subprocess, but also means that:
@@ -137,7 +137,7 @@ In the proposed solution, console output from the **worker processes** is manage
     
 My suggestion is to make the second option the standard for `stdout` and the first option the standard for `stderr`. It must however be possible for users to override this standard in the project file and to choose the first option for `stdout` instead, e.g. because: 
 
-- it is necessary for debugging
+- real-time output is necessary for debugging
 - they want to make sure output cannot be lost from commands in a group where another command fails
 - a process is generating huge amounts of output that would risk overwhelming main memory or the multiprocessing queue.
 

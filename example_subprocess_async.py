@@ -12,8 +12,7 @@ class AsyncExecutor:
     async def run_job(self, job):
         async with self.lock:
             print("Starting ...")
-        proc = await asyncio.create_subprocess_exec(*job)
-        async with self.lock:
+            proc = await asyncio.create_subprocess_exec(*job)
             self.procs.append(proc)
         rc = await proc.wait()
         async with self.lock:
