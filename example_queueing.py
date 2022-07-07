@@ -2,19 +2,18 @@ import subprocess
 import sys
 import os
 import signal
-from time import sleep
 from multiprocessing import Queue, Process, Lock
 
 
-
-def run(status_queue, lock, subprocess_args) -> Process:
+def run(status_queue, lock, subprocess_args):
     with lock:
         print("Starting ...")
-    sp = subprocess.Popen(subprocess_args, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+    sp = subprocess.Popen(subprocess_args)
     status_queue.put(("start", sp.pid))
-    output, _ = sp.communicate()
+    sp.communicate()
     rc = sp.returncode
-    status_queue.put(("end", sp.pid, rc, output))
+    status_queue.put(("end", sp.pid, rc))
+
 
 def execute(jobs):
 
@@ -32,14 +31,12 @@ def execute(jobs):
     for _ in range(2):
         status_info = status_queue.get()
         assert status_info[0] == "end"
-        print(status_info[3].decode("UTF-8"))
         pids.remove(status_info[1])
         if status_info[2] != 0:
             for other_pid in pids[:]:
-                os.kill(other_pid, signal.SIGKILL)
+                os.kill(other_pid, signal.SIGTERM)
                 pids.remove(other_pid)
             break
-                
 
 
 # good case
@@ -57,4 +54,3 @@ execute(
         ((sys.executable, "./job.py", "2", "2", "2")),
     ]
 )
-

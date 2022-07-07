@@ -2,6 +2,7 @@ import subprocess
 import sys
 from time import sleep
 
+
 def execute(jobs):
     processes = []
     for job in jobs:

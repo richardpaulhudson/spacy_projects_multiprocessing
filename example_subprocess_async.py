@@ -1,8 +1,8 @@
 import asyncio
 import sys
 
-class AsyncExecutor:
 
+class AsyncExecutor:
     def __init__(self, jobs):
         self.procs = []
         self.tasks = [asyncio.create_task(self.run_job(job)) for job in jobs]
@@ -25,8 +25,9 @@ class AsyncExecutor:
         for task in self.tasks:
             await task
 
+
 async def good_case():
-    executor = AsyncExecutor (
+    executor = AsyncExecutor(
         [
             ((sys.executable, "./job.py", "1", "0", "5")),
             ((sys.executable, "./job.py", "2", "0", "2")),
@@ -34,14 +35,16 @@ async def good_case():
     )
     await executor.execute()
 
+
 async def bad_case():
-    executor = AsyncExecutor (
+    executor = AsyncExecutor(
         [
             ((sys.executable, "./job.py", "1", "1", "5")),
             ((sys.executable, "./job.py", "2", "2", "2")),
         ]
     )
     await executor.execute()
+
 
 asyncio.run(good_case())
 asyncio.run(bad_case())
