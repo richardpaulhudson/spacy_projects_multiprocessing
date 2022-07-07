@@ -9,7 +9,7 @@ This repo documents the design decisions made for a [spaCy PR](https://github.co
 ### 2.1 Functional requirements
 
 1. [spaCy project workflows](https://spacy.io/usage/projects) support the definition of dependencies and outputs (files created by commands) in order to ensure that commands are not re-executed unnecessarily on consecutive workflow runs. All this functionality should continue to work for each command in a parallel group with respect to the rest of the project file in the same way as it does for a serial command. However, the management of dependencies *between* the members of a parallel group is out of scope: the user is responsible for ensuring that no problems occur. 
-2. It must be possible to specify a command group of size `m` together with a maximum number of parallel processes `n`, where `n<m`. The commands must be assigned to the processes in the group in the order in which they are declared in the project file.
+2. It must be possible to specify a command group of size `m` together with a maximum number of parallel processes `n`, where `n<m`. The commands in the group must be assigned to the available processes in the order in which they are declared in the project file.
 3. If any command within a group returns a non-zero return code, the execution of the other processes in the group should be halted. It must be possible to switch off this feature because there might be situations in which a non-zero return code is the expected outcome.
 4. Output from commands and relating to their execution should be managed in such a way that nothing gets lost. As far as possible, output from separate parallel commands should be displayed separately.
 
@@ -51,13 +51,13 @@ Async IO is a paradigm available within Python that is primarily designed to all
 This approach is exemplified in [example_subprocess_async.py](https://github.com/richardpaulhudson/spacy_multiprocessing_arch/blob/main/example_subprocess_async.py). It, too, has serious problems:
 
 - The fact that each subprocess is managed in its own coroutine greatly increases the code complexity and also introduces threading issues that have to be managed extensively with a mutex.
-- Because asynchronous functions can only be called from other asynchronous functions or by an asynchronous runner method like `asyncio.run()`, going this route in spacy projects would require major changes that would probably include making methods asynchronous that are not directly relevant to the change. This would make the code hard to understand.
+- Because asynchronous functions can only be called from other asynchronous functions or by an asynchronous runner method like `asyncio.run()`, going this route in spaCy projects would require major changes that would probably include making methods asynchronous that are not directly relevant to the change. This would make the code hard to understand.
 
 ### 3.3 `trio`
 
 [trio](https://trio.readthedocs.io/en/stable/reference-io.html) is a high-level library designed primarily to support asynchronous IO. It provides a nice layer of abstraction over subprocess creation and management, but using it here would have the following problems:
 
-- Using `trio` requires using asynchronous programming. - Because asynchronous functions can only be called from other asynchronous functions or by an asynchronous runner method like `asyncio.run()`, going this route in spacy projects would require major changes that would probably include making methods asynchronous that are not directly relevant to the change. This would make the code hard to understand.
+- Using `trio` requires using asynchronous programming. - Because asynchronous functions can only be called from other asynchronous functions or by an asynchronous runner method, going this route in spaCy projects would require major changes that would probably include making methods asynchronous that are not directly relevant to the change. This would make the code hard to understand.
 - Using `trio` would mean adding an additional dependency to spaCy, which we normally try and avoid wherever possible. In this case, there seems to be no clear advantage over other architecture variants.
 - `trio` does not support Python 3.6, meaning that if we included it we would have to move the bottom Python version peg for spaCy (this may not actually be that serious an issue, though, as Python 3.6 is no longer officially supported in any case).
 
@@ -65,7 +65,7 @@ This approach is exemplified in [example_subprocess_async.py](https://github.com
 
 At first glance [multiprocessing.Pool](https://docs.python.org/3/library/multiprocessing.html#multiprocessing.pool.Pool) looks like exactly what we need: 
 
-- a pool of processes of a specified size; each process in the pool could play the role of worker process.
+- a pool of processes; the pool has a specified size; each process in the pool could play the role of worker process.
 - individual jobs are assigned to processes in the pool using the `apply_async()` method, whose parameters are the Python method to be run and optionally a callback method to call when the job is complete.
 - the pool has a `terminate()` method that kills all currently running processes.
 
@@ -94,7 +94,7 @@ However, this route would involve the following problems:
 
 ### 3.7 `multiprocessing.Queue`
 
-All the above variants have the basic problem that each worker process communicates separately with the main process that started it. The main process can only block on one worker process at a time but needs to monitor them all, which means it has to either poll or offer confusing callbacks with threading issues. What is required is instead a mechanism that allows the main process to block on **all** worker processes at once within a **single thread** and be triggered by individual worker processes as and when they are ready.
+All the above variants have the basic problem that each worker process communicates separately with the main process that started it. The main process can only communicate with one worker process at a time but needs to monitor them all, which means it has to either poll or offer confusing callbacks with threading issues. What is required is instead a mechanism that allows the main process to block on **all** worker processes at once within a **single thread** and to be triggered by individual worker processes as and when they are ready.
 
 The standard architectural building block to achieve this is a queue on which the main process listens and to which worker processes can submit messages. Python's multiprocessing library has a standard `Queue` implementation which I have been using it for several years within the [Holmes](https://github.com/explosion/holmes-extractor) library without any problems. Because queue messaging takes place orthogonally to the main flow of control within a program, queues are also ideal for adding functionality to an existing codebase in a minimal-invasive fashion: a queue can be passed down through multiple layers of a program as an optional parameter, and because data is passed back via the queue, there is no need to change the return types of the functions and methods involved.
 
@@ -107,9 +107,9 @@ In [example_queueing.py](https://github.com/richardpaulhudson/spacy_multiprocess
 
 ### 4.1 Communication between worker processes and subprocesses
 
-The [subprocess](https://docs.python.org/3/library/subprocess.html) documentation advises using `subprocess.run()` rather the lower-level `subprocess.Popen()` whenever possible. In [example_queueing.py](https://github.com/richardpaulhudson/spacy_multiprocessing_arch/blob/main/example_queueing.py), however, the subprocess is created using `Popen()` to allow the worker process to retrieve the subprocess' PID and send it to the main process via the queue.
+The [subprocess](https://docs.python.org/3/library/subprocess.html) documentation advises using `subprocess.run()` rather the lower-level `subprocess.Popen()` whenever possible. In [example_queueing.py](https://github.com/richardpaulhudson/spacy_multiprocessing_arch/blob/main/example_queueing.py), however, the subprocess is created using `Popen()` to allow the worker process to retrieve the subprocess' PID and send it to the main process via the queue before the worker process starts blocking on the subprocess.
 
-On reflection and further investigation, the main issue with calling `Popen()` is that it starts a subprocess that is not in communication with its worker process, meaning that e.g. the standard pipes are not managed automatically. In the proposed solution, communication is established using `communicate()` immediately after the worker process has placed the subprocess' PID in the queue and is maintained until the subprocess completes. This creates a comparable situation to if the subprocess had been created using `run()`.
+On reflection and further investigation, the main issue with calling `Popen()` is that it starts a subprocess that is not in communication with its worker process, meaning that e.g. the standard pipes are not managed automatically. In the proposed solution, though, communication is established using `communicate()` immediately after the worker process has placed the subprocess' PID in the queue and is maintained until the subprocess completes. This creates a comparable situation to if the subprocess had been created using `run()`.
 
 One concern is whether subprocess output could get lost in the split second before communication is established. [popen_with_sleep.py](https://github.com/richardpaulhudson/spacy_multiprocessing_arch/blob/main/popen_with_sleep.py) demonstrates that this is not the case: although communication is established well after the subprocess has written to `stdout`, the relevant output is still correctly piped to the console.
 
@@ -129,11 +129,11 @@ In general it is worth noting that if subprocess termination fails for some reas
 
 In the proposed solution, console output from the **worker processes** is managed using a mutex to ensure that sections of output from different worker processes remain separate. On the other hand, the executed **subprocesses** know nothing about the workflow system, and any subprocess could log anything to `stdout` or `stderr` at any time. It probably makes more sense for subprocesses to log to separate log files, but we have no way of stipulating this and they are at liberty to log to the console whenever they like. There are two possible ways of managing console output from subprocesses, neither of which is ideal:
 
-- Each subprocess logs directly to the console. This ensures console output is displayed in real time; however, console output from different subprocesses can get mixed up.
-- Each worker process stores the console output from its subprocess and returns it to the main process together with the return code so the main process can log it. This option is demonstrated by the script [example_queueing_with_output_management.py](https://github.com/richardpaulhudson/spacy_multiprocessing_arch/blob/main/example_queueing_with_output_management.py). It ensures that console output is displayed cleanly and separately for each subprocess, but also means that:
+1. Each subprocess logs directly to the console. This ensures console output is displayed in real time; however, console output from different subprocesses can get mixed up.
+2. Each worker process stores the console output from its subprocess and returns it to the main process together with the return code so the main process can log it. This option is demonstrated by the script [example_queueing_with_output_management.py](https://github.com/richardpaulhudson/spacy_multiprocessing_arch/blob/main/example_queueing_with_output_management.py). It ensures that console output is displayed cleanly and separately for each subprocess, but also means that:
 
     - console output is not displayed in real time
-    - console output is lost for killed commands in a group. This is not ideal, but is not necessarily a big problem because the console output for the command that **actually failed** and led to the other commands being killed — and this is the command that the user will usually want to investigate — will never be lost. I tried out various buffering and streaming options but could not find a way of capturing a process' pipe output before it dies. If somebody has one that is not too complex, though, that would obviously be great.
+    - console output is lost for killed commands in a group. This is not ideal, but is not necessarily a big problem because the console output for the command that **actually failed** and led to the other commands being killed — and this is the command that the user will usually want to investigate — will never get lost. I tried out various buffering and streaming options but could not find a way of capturing a process' pipe output before it dies. If somebody has one that is not too complex, though, that would obviously be great.
     
 My suggestion is to make the second option the standard for `stdout` and the first option the standard for `stderr`. It must however be possible for users to override this standard in the project file and to choose the first option for `stdout` instead, e.g. because: 
 
