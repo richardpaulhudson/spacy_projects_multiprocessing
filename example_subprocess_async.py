@@ -1,6 +1,7 @@
 import asyncio
+import os
 import sys
-
+import signal
 
 class AsyncExecutor:
     def __init__(self, jobs):
@@ -11,7 +12,7 @@ class AsyncExecutor:
     async def run_job(self, job):
         async with self.lock:
             print("Starting ...")
-        proc = await asyncio.create_subprocess_shell(" ".join(job))
+        proc = await asyncio.create_subprocess_exec(*job)
         async with self.lock:
             self.procs.append(proc)
         rc = await proc.wait()
@@ -19,7 +20,7 @@ class AsyncExecutor:
             self.procs.remove(proc)
             if rc != 0:
                 for proc in self.procs:
-                    proc.kill()
+                    proc.terminate()
 
     async def execute(self):
         for task in self.tasks:

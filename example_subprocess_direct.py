@@ -15,7 +15,7 @@ def execute(jobs):
                 processes.remove(process)
                 if rc != 0:
                     for other_process in processes:
-                        other_process.kill()
+                        other_process.terminate()
                     break
         if len(processes) == 0:
             break
