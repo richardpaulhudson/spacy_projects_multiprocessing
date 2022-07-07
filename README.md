@@ -77,7 +77,7 @@ However, this route would involve the following problems:
     - the job can only be a method if that method is specifically made picklable.
     - if the method is picklable, different jobs within the pool may end up accessing different instance variables in different spawned processes.
 - In general the reliance on callback methods is likely to result in code that is messy and hard to understand and debug.
-- Process pools are primarily intended to perform map-reduce, i.e. to execute the same job multiple times in parallel with different input data. `multiprocessing.Pool` provides a convenient method for collecting the output from multiple parallel processes and returning when they have all completed. This is, however, not what we require here: we need to react to **each** process completing at the moment it happens.
+- Process pools are primarily intended to perform map-reduce, i.e. to execute the same job multiple times in parallel with different input data. `multiprocessing.Pool` provides a convenient method for collecting the output from multiple parallel processes and returning when they have all completed. This is, however, not what we require here: we need to react to **each** process completing at the moment it happens, and even with the pool the main process can only block on one process at a time and cannot know which one to choose as there is no way of knowing which process will complete first.
 
 ### 3.5 `ProcessPoolExecutor`
 
