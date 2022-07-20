@@ -38,10 +38,10 @@ The direct `subprocess` approach is exemplified in [example_subprocess_direct.py
 - The main process has to poll the subprocesses to see whether they have completed. Although there is sometimes no alternative to polling in low-level libraries, it is normally regarded as a clear antipattern to include it in high-level code. Instead, there should be some mechanism for the subprocesses to notify the main process when they complete (push as opposed to pull).
 - Only the individual OS commands are run in their own parallel subprocesses; there is nothing corresponding to a spaCy projects command consisting of multiple OS commands executed sequentially, and no scope for parallelisation of tooling within spaCy projects such as outputting status messages. Handling all this directly from a single main process/thread would be possible, but would require major code changes.
 
-To avoid this last problem, it seems sensible to aim for a three-tier architecture:
+To avoid this second problem, it seems sensible to aim for a three-tier architecture:
 
 - the **main process** (Python)
-- several **worker processes** (Python) started by the main process. Each worker process corresponds to a spaCy projects command and starts `n` subprocesses corresponding to the OS commands which that spaCy projects command contains.
+- several **worker processes** (Python) started by the main process. Each worker process corresponds to a spaCy projects command and sequentially starts `n` subprocesses corresponding to the OS commands which that spaCy projects command contains.
 - **subprocesses** (OS) 
 
 ### 3.2 `asyncio-subprocess`
@@ -77,7 +77,7 @@ However, this route would involve the following problems:
     - the job can only be a method if that method is specifically made picklable.
     - if the method is picklable, different jobs within the pool may end up accessing different instance variables in different spawned processes.
 - In general the reliance on callback methods is likely to result in code that is messy and hard to understand and debug.
-- Process pools are primarily intended to perform map-reduce, i.e. to execute the same job multiple times in parallel with different input data. `multiprocessing.Pool` provides a convenient method for collecting the output from multiple parallel processes and returning when they have all completed. This is, however, not what we require here: we need to react to **each** process completing at the moment it happens, and even with the pool the main process can only block on one process at a time and cannot know which one to choose as there is no way of knowing which process will complete first.
+- Process pools are primarily intended to perform map-reduce, i.e. to execute the same job multiple times in parallel with different input data. `multiprocessing.Pool` provides a convenient method for collecting the output from multiple parallel processes and returning when they have all completed. This is, however, not what we require here: we need to react to **each** process completing at the moment it happens, and even with the pool the main process can only block on one process at a time and would have to poll the processes in a round-robin fashion as there is no way of knowing which process will complete first.
 
 ### 3.5 `ProcessPoolExecutor`
 
@@ -113,13 +113,13 @@ The main disadvantage of `spawn` is that it involves copying memory from the spa
 
 ### 4.2 The termination signal
 
-The `os.kill()` method used to kill subprocesses requires the specification of a termination signal. In the example scripts `SIGTERM (15)` is used and seems an appropriate choice, although it would also be possible to allow the user to specify `SIGKILL (9)` as an option within the project file. These are POSIX signals; experimentation will be necessary on Windows to elicit the appropriate behaviour (see e.g. [here](https://stackoverflow.com/questions/35772001/how-to-handle-a-signal-sigint-on-a-windows-os-machine)).
+The `os.kill()` method used to kill subprocesses requires the specification of a termination signal. In the example scripts `SIGTERM (15)` is used and seems an appropriate choice, although it would also be possible to allow the user to specify `SIGKILL (9)` as an option within the project file. These are POSIX signals; experimentation may be necessary on Windows to elicit the appropriate behaviour (see e.g. [here](https://stackoverflow.com/questions/35772001/how-to-handle-a-signal-sigint-on-a-windows-os-machine)).
 
 In general it is worth noting that if subprocess termination fails for some reason on some OS with some type of process, the outcome will probably be that the workflow execution hangs. The outcome is very unlikely to be worse than if the feature had never been implemented: it is worth trying to terminate everything on all OS even if this is not always straightforward.
 
 ### 4.3 Managing console output
 
-In the proposed solution, console output from the **worker processes** is managed using a mutex to ensure that sections of output from different worker processes remain separate. On the other hand, the executed **subprocesses** know nothing about the workflow system, and any subprocess could log anything to `stdout` or `stderr` at any time. It probably makes more sense for subprocesses to log to separate log files, but we have no way of stipulating this and they are at liberty to log to the console whenever they like. There are two possible ways of managing console output from subprocesses, neither of which is ideal:
+In the proposed solution, console output from the **worker processes** is managed using a mutex to ensure that sections of output from different worker processes remain separate. On the other hand, the executed **subprocesses** know nothing about the workflow system, and any subprocess could log anything to `stdout` or `stderr` at any time. There are two possible ways of managing console output from subprocesses, neither of which is ideal:
 
 1. Each subprocess logs directly to the console. This ensures console output is displayed in real time; however, console output from different subprocesses can get mixed up.
 2. Each worker process stores the console output from its subprocess and returns it to the main process together with the return code so the main process can log it. This option is demonstrated by the script [example_queueing_with_output_management.py](https://github.com/richardpaulhudson/spacy_multiprocessing_arch/blob/main/example_queueing_with_output_management.py). This strategy ensures that console output is displayed cleanly and separately for each subprocess, but also means that console output is not displayed in real time.
