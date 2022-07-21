@@ -36,7 +36,7 @@ The four `example ... py` scripts in the repository show different ways of achie
 The direct `subprocess` approach is exemplified in [example_subprocess_direct.py](https://github.com/richardpaulhudson/spacy_multiprocessing_arch/blob/main/example_subprocess_direct.py). However, it has serious problems:
 
 - The main process has to poll the subprocesses to see whether they have completed. Although there is sometimes no alternative to polling in low-level libraries, it is normally regarded as a clear antipattern to include it in high-level code. Instead, there should be some mechanism for the subprocesses to notify the main process when they complete (push as opposed to pull).
-- Only the individual OS commands are run in their own parallel subprocesses; there is nothing corresponding to a spaCy projects command consisting of multiple OS commands executed sequentially, and no scope for parallelisation of tooling within spaCy projects such as outputting status messages. Handling all this directly from a single main process/thread would be possible, but would require major code changes.
+- Only the individual OS commands are run in their own parallel subprocesses; there is nothing corresponding to a spaCy projects command consisting of multiple OS commands executed sequentially, and no scope for parallelisation of tooling within spaCy projects such as outputting status messages. Handling all this directly from a single main process/thread would be possible, but would require very complex code.
 
 To avoid this second problem, it seems sensible to aim for a three-tier architecture:
 
